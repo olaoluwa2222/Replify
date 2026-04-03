@@ -1,0 +1,160 @@
+/**
+ * WhatsApp Webhook Handler
+ * GET: Verify webhook with Meta
+ * POST: Receive and process incoming messages
+ */
+
+import { supabase } from "@/lib/supabase";
+import { generateReply } from "@/lib/ai";
+import { sendMessage } from "@/lib/whatsapp";
+
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+
+  const verify_token = searchParams.get("hub.verify_token");
+  const challenge = searchParams.get("hub.challenge");
+
+  // Verify the webhook token
+  if (verify_token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    console.log("✓ Webhook verified");
+    return new Response(challenge, { status: 200 });
+  }
+
+  console.log("✗ Webhook verification failed");
+  return new Response("Verification token mismatch", { status: 403 });
+}
+
+export async function POST(req) {
+  try {
+    const body = await req.json();
+
+    // Log the entire body for debugging
+    console.log("Webhook received:", JSON.stringify(body, null, 2));
+
+    // Extract message data
+    if (
+      body.entry &&
+      body.entry[0].changes &&
+      body.entry[0].changes[0].value.messages
+    ) {
+      const messages = body.entry[0].changes[0].value.messages;
+      const contacts = body.entry[0].changes[0].value.contacts;
+
+      for (let message of messages) {
+        // Only process text messages
+        if (message.type !== "text") {
+          console.log(`⏭️  Skipping non-text message type: ${message.type}`);
+          continue;
+        }
+
+        const sender_phone = message.from;
+        const message_text = message.text?.body || "";
+        const customer_name =
+          contacts && contacts[0] ? contacts[0].profile.name : "Unknown";
+
+        console.log(
+          `📱 Message from ${sender_phone} (${customer_name}): ${message_text}`,
+        );
+
+        // Hardcoded seller_id for testing (will add proper lookup later)
+        const seller_id = "test-seller-id";
+
+        try {
+          // Step 1: Save incoming customer message to conversations
+          console.log("💾 Saving customer message to Supabase...");
+          const { error: saveError } = await supabase
+            .from("conversations")
+            .insert({
+              seller_id,
+              customer_whatsapp: sender_phone,
+              role: "user",
+              message: message_text,
+            });
+
+          if (saveError) {
+            console.error("Error saving message:", saveError);
+            continue;
+          }
+
+          // Step 2: Fetch conversation history (last 10 messages)
+          console.log("📜 Fetching conversation history...");
+          const { data: history, error: historyError } = await supabase
+            .from("conversations")
+            .select("role, message")
+            .eq("seller_id", seller_id)
+            .eq("customer_whatsapp", sender_phone)
+            .order("created_at", { ascending: true })
+            .limit(10);
+
+          if (historyError) {
+            console.error("Error fetching history:", historyError);
+          }
+
+          const conversationHistory = history || [];
+
+          // Step 3: Fetch product catalog
+          console.log("🛍️  Fetching product catalog...");
+          const { data: products, error: productsError } = await supabase
+            .from("products")
+            .select("*")
+            .eq("seller_id", seller_id);
+
+          if (productsError) {
+            console.error("Error fetching products:", productsError);
+          }
+
+          const productCatalog = products || [];
+
+          // Step 4: Generate AI reply
+          console.log("🤖 Generating AI reply...");
+          const aiReply = await generateReply(
+            message_text,
+            productCatalog,
+            conversationHistory,
+          );
+
+          console.log(`✨ AI Reply: ${aiReply}`);
+
+          // Step 5: Save AI reply to conversations
+          console.log("💾 Saving AI reply to Supabase...");
+          const { error: replyError } = await supabase
+            .from("conversations")
+            .insert({
+              seller_id,
+              customer_whatsapp: sender_phone,
+              role: "assistant",
+              message: aiReply,
+            });
+
+          if (replyError) {
+            console.error("Error saving AI reply:", replyError);
+            continue;
+          }
+
+          // Step 6: Send reply back to customer
+          console.log("📤 Sending reply to customer...");
+          await sendMessage(sender_phone, aiReply);
+
+          console.log(`✅ Successfully processed message from ${sender_phone}`);
+        } catch (messageError) {
+          console.error(
+            `❌ Error processing message from ${sender_phone}:`,
+            messageError,
+          );
+          continue;
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("Webhook error:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
