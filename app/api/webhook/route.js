@@ -57,7 +57,7 @@ export async function POST(req) {
         );
 
         // Hardcoded seller_id for testing (will add proper lookup later)
-        const seller_id = "test-seller-id";
+        const seller_id = "211147d4-04f7-4608-a1d4-415087dae4cc";
 
         try {
           // Step 1: Save incoming customer message to conversations
