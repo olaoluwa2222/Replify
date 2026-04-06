@@ -11,14 +11,17 @@ cloudinary.config({
 
 function uploadToCloudinary(buffer, options = {}) {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+    const stream = cloudinary.uploader.upload_stream(
+      options,
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
 
-      resolve(result);
-    });
+        resolve(result);
+      },
+    );
 
     stream.end(buffer);
   });
@@ -48,7 +51,10 @@ export async function POST(request) {
       resource_type: "image",
     });
 
-    return NextResponse.json({ secure_url: uploadResult.secure_url }, { status: 200 });
+    return NextResponse.json(
+      { secure_url: uploadResult.secure_url },
+      { status: 200 },
+    );
   } catch (error) {
     console.error("Cloudinary upload error:", error);
     return NextResponse.json(
