@@ -5,7 +5,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
-import { generateReply } from "@/lib/ai";
+import { extractOrderData, generateReply } from "@/lib/ai";
 import { sendMessage } from "@/lib/whatsapp";
 
 export async function GET(req) {
@@ -112,6 +112,82 @@ export async function POST(req) {
             productCatalog,
             conversationHistory,
           );
+
+          // Step 4b: Detect complete order and save to orders table
+          console.log("🧾 Extracting order data from conversation...");
+          const orderData = await extractOrderData(conversationHistory);
+
+          if (orderData?.is_order) {
+            const existing = await supabase
+              .from("orders")
+              .select("id")
+              .eq("seller_id", seller_id)
+              .eq("customer_whatsapp", sender_phone)
+              .eq("product_name", orderData.product_name)
+              .eq("order_status", "new")
+              .single();
+
+            if (existing.error && existing.error.code !== "PGRST116") {
+              console.error("Error checking existing order:", existing.error);
+            }
+
+            if (!existing.data) {
+              const { error: orderInsertError } = await supabase
+                .from("orders")
+                .insert({
+                  seller_id,
+                  customer_name: orderData.customer_name || customer_name,
+                  customer_phone: sender_phone,
+                  customer_whatsapp: sender_phone,
+                  product_name: orderData.product_name,
+                  size: orderData.size,
+                  quantity: orderData.quantity || 1,
+                  delivery_address: orderData.delivery_address,
+                  total_amount: orderData.total_amount,
+                  payment_status: "pending",
+                  order_status: "new",
+                });
+
+              if (orderInsertError) {
+                console.error(
+                  "Error saving extracted order:",
+                  orderInsertError,
+                );
+              } else {
+                console.log("✅ Order saved to database");
+              }
+            }
+          }
+
+          // Step 4c: Detect payment claims and mark pending orders
+          const normalizedMessage = message_text.toLowerCase();
+          const paymentClaimedPatterns = [
+            "paid",
+            "transferred",
+            "sent the money",
+            "i've paid",
+            "i have paid",
+          ];
+
+          const isPaymentClaimed = paymentClaimedPatterns.some((phrase) =>
+            normalizedMessage.includes(phrase),
+          );
+
+          if (isPaymentClaimed) {
+            const { error: paymentClaimError } = await supabase
+              .from("orders")
+              .update({ payment_status: "payment_claimed" })
+              .eq("seller_id", seller_id)
+              .eq("customer_whatsapp", sender_phone)
+              .eq("payment_status", "pending");
+
+            if (paymentClaimError) {
+              console.error(
+                "Error updating payment_claimed status:",
+                paymentClaimError,
+              );
+            }
+          }
 
           console.log(`✨ AI Reply: ${aiReply}`);
 
