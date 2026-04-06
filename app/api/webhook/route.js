@@ -84,7 +84,7 @@ export async function POST(req) {
             .eq("seller_id", seller_id)
             .eq("customer_whatsapp", sender_phone)
             .order("created_at", { ascending: true })
-            .limit(10);
+            .limit(20);
 
           if (historyError) {
             console.error("Error fetching history:", historyError);
