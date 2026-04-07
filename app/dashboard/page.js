@@ -151,6 +151,7 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingOrderId, setConfirmingOrderId] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   async function fetchOrders() {
     setLoading(true);
@@ -271,6 +272,13 @@ export default function DashboardPage() {
           from { background-position: -200% center; }
           to { background-position: 200% center; }
         }
+
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.95) translateY(8px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .modal-enter { animation: modalIn 0.2s ease both; }
 
         .animate-fadeUp { animation: fadeUp 0.5s ease both; }
         .stagger-1 { animation-delay: 0.05s; }
@@ -554,10 +562,11 @@ export default function DashboardPage() {
                       return (
                         <tr
                           key={order.id}
-                          className={`animate-fadeUp h-16 transition-colors hover:bg-(--bg-hover) ${staggerClass}`}
+                          className={`animate-fadeUp h-16 cursor-pointer transition-colors hover:bg-(--bg-hover) ${staggerClass}`}
                           style={{
                             borderTop: "1px solid var(--border-subtle)",
                           }}
+                          onClick={() => setSelectedOrder(order)}
                         >
                           <td className="px-5 py-2">
                             <div className="flex items-center gap-3">
@@ -651,7 +660,10 @@ export default function DashboardPage() {
                           <td className="px-5 py-2">
                             {order.payment_status === "payment_claimed" ? (
                               <button
-                                onClick={() => handleConfirmPayment(order)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleConfirmPayment(order);
+                                }}
                                 disabled={confirmingOrderId === order.id}
                                 className="rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_16px_rgba(232,160,69,0.4)] disabled:opacity-60"
                                 style={{
@@ -681,6 +693,209 @@ export default function DashboardPage() {
           </div>
         </section>
       </main>
+
+      {selectedOrder ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setSelectedOrder(null)}
+        >
+          <div
+            className="modal-enter relative w-full max-w-120 rounded-2xl border p-8"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border)",
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedOrder(null)}
+              className="absolute right-4 top-4 rounded-md px-2 py-1 text-sm transition-colors hover:bg-(--bg-elevated)"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              ✕
+            </button>
+
+            <div className="mb-5">
+              <h3
+                className="text-2xl font-bold"
+                style={{
+                  fontFamily: "'Sora', sans-serif",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Order Details
+              </h3>
+              <p
+                className="mt-1 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {timeAgo(selectedOrder.created_at)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Customer Name
+                </p>
+                <p style={{ color: "var(--text-primary)" }}>
+                  {selectedOrder.customer_name || "Customer"}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Phone Number
+                </p>
+                <p style={{ color: "var(--text-primary)" }}>
+                  {selectedOrder.customer_phone ||
+                    selectedOrder.customer_whatsapp ||
+                    "—"}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Product
+                </p>
+                <p style={{ color: "var(--text-primary)" }}>
+                  {selectedOrder.product_name || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Size
+                </p>
+                <p style={{ color: "var(--text-primary)" }}>
+                  {selectedOrder.size || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Quantity
+                </p>
+                <p style={{ color: "var(--text-primary)" }}>
+                  {selectedOrder.quantity || 1}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Amount
+                </p>
+                <p className="font-semibold" style={{ color: "var(--gold)" }}>
+                  {formatNaira(selectedOrder.total_amount || 0)}
+                </p>
+              </div>
+
+              <div className="col-span-2">
+                <p
+                  className="text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Delivery Address
+                </p>
+                <p
+                  className="whitespace-normal wrap-break-word"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {selectedOrder.delivery_address || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p
+                  className="mb-1 text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Payment Status
+                </p>
+                {(() => {
+                  const payment = getPaymentConfig(
+                    selectedOrder.payment_status,
+                  );
+                  return (
+                    <span
+                      className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      style={{
+                        background: payment.bg,
+                        color: payment.color,
+                        border: `1px solid ${payment.border}`,
+                      }}
+                    >
+                      {payment.dot ? <span className="pulse-amber" /> : null}
+                      {payment.label}
+                    </span>
+                  );
+                })()}
+              </div>
+
+              <div>
+                <p
+                  className="mb-1 text-[11px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Order Status
+                </p>
+                {(() => {
+                  const status = getStatusConfig(
+                    selectedOrder.order_status || "new",
+                  );
+                  return (
+                    <span
+                      className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium capitalize"
+                      style={{
+                        background: status.bg,
+                        color: status.color,
+                        border: `1px solid ${status.border}`,
+                      }}
+                    >
+                      {selectedOrder.order_status || "new"}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {selectedOrder.payment_status === "payment_claimed" ? (
+              <button
+                onClick={() => handleConfirmPayment(selectedOrder)}
+                disabled={confirmingOrderId === selectedOrder.id}
+                className="mt-6 w-full rounded-lg px-3.5 py-2.5 text-sm font-bold transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_16px_rgba(232,160,69,0.4)] disabled:opacity-60"
+                style={{
+                  background: "linear-gradient(135deg, #E8A045, #C4863A)",
+                  color: "#080808",
+                }}
+              >
+                {confirmingOrderId === selectedOrder.id
+                  ? "Confirming..."
+                  : "Confirm Payment"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
