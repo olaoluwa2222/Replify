@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const SELLER_ID = "211147d4-04f7-4608-a1d4-415087dae4cc";
+let SELLER_ID = null;
 
 function getInitials(name) {
   if (!name) return "CU";
@@ -89,7 +90,13 @@ function getStatusConfig(status) {
   return styles[status] || styles.new;
 }
 
-function StatCard({ title, value, tone = "default", className = "" }) {
+function StatCard({
+  title,
+  value,
+  subtitle,
+  tone = "default",
+  className = "",
+}) {
   const valueStyle =
     tone === "amber"
       ? { color: "var(--amber)" }
@@ -133,8 +140,11 @@ function StatCard({ title, value, tone = "default", className = "" }) {
       >
         {value}
       </p>
-      <p className="mt-3 text-xs font-medium" style={{ color: "var(--green)" }}>
-        ▲ 12% vs yesterday
+      <p
+        className="mt-3 text-xs font-medium"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {subtitle || "All time"}
       </p>
 
       <div
@@ -147,13 +157,88 @@ function StatCard({ title, value, tone = "default", className = "" }) {
   );
 }
 
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Good morning";
+  if (hour >= 12 && hour < 17) return "Good afternoon";
+  if (hour >= 17 && hour < 21) return "Good evening";
+  return "Hey";
+}
+
+function getFormattedDate() {
+  const now = new Date();
+  const days = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  const dayName = days[now.getDay()];
+  const monthName = months[now.getMonth()];
+  const date = now.getDate();
+  const year = now.getFullYear();
+
+  return `${dayName}, ${monthName} ${date} ${year}`;
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmingOrderId, setConfirmingOrderId] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [user, setUser] = useState(null);
+  const [seller, setSeller] = useState(null);
+
+  useEffect(() => {
+    async function checkUser() {
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+
+      if (!authUser) {
+        router.push("/login");
+        return;
+      }
+
+      setUser(authUser);
+      SELLER_ID = authUser.id;
+
+      // Fetch seller data
+      const { data: sellerData, error: sellerError } = await supabase
+        .from("sellers")
+        .select("*")
+        .eq("id", authUser.id)
+        .single();
+
+      if (!sellerError && sellerData) {
+        setSeller(sellerData);
+      }
+    }
+
+    checkUser();
+  }, [router]);
 
   async function fetchOrders() {
+    if (!SELLER_ID) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("orders")
@@ -173,22 +258,24 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchOrders();
-  }, []);
+    if (user) {
+      fetchOrders();
+    }
+  }, [user]);
 
   const stats = useMemo(() => {
     const totalOrders = orders.length;
     const needsAttention = orders.filter(
-      (order) => order.payment_status === "payment_claimed",
+      (order) => order.payment_status === "pending",
     ).length;
-    const confirmedToday = orders.filter(
-      (order) => order.payment_status === "confirmed",
+    const confirmed = orders.filter(
+      (order) => order.order_status === "confirmed",
     ).length;
     const revenue = orders
-      .filter((order) => order.payment_status === "confirmed")
+      .filter((order) => order.payment_status === "paid")
       .reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
 
-    return { totalOrders, needsAttention, confirmedToday, revenue };
+    return { totalOrders, needsAttention, confirmed, revenue };
   }, [orders]);
 
   async function handleConfirmPayment(order) {
@@ -202,19 +289,27 @@ export default function DashboardPage() {
         item.id === order.id
           ? {
               ...item,
-              payment_status: "confirmed",
-              order_status: "processing",
+              payment_status: "paid",
+              order_status: "confirmed",
             }
           : item,
       ),
     );
 
-    const { error } = await supabase
-      .from("orders")
-      .update({ payment_status: "confirmed", order_status: "processing" })
-      .eq("id", order.id);
+    try {
+      const response = await fetch("/api/confirm-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      });
 
-    if (error) {
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error("Error confirming payment:", data.error);
+        setOrders(previousOrders);
+      }
+    } catch (error) {
       console.error("Error confirming payment:", error);
       setOrders(previousOrders);
     }
@@ -325,7 +420,7 @@ export default function DashboardPage() {
                   "linear-gradient(135deg, var(--gold-bright), var(--gold-muted))",
               }}
             >
-              R
+              {seller ? getInitials(seller.business_name) : "R"}
             </div>
             <div>
               <p
@@ -335,7 +430,7 @@ export default function DashboardPage() {
                   color: "var(--text-primary)",
                 }}
               >
-                Replify
+                {seller ? seller.business_name.split(" ")[0] : "Replify"}
               </p>
               <p
                 className="mt-1 text-[11px]"
@@ -368,17 +463,17 @@ export default function DashboardPage() {
             <span>🛍️</span>
             <span>Catalog</span>
           </Link>
-          <a
-            href="#"
+          <Link
+            href="/settings"
             className="flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors hover:bg-(--bg-elevated) hover:text-(--text-primary)"
             style={{ color: "var(--text-secondary)" }}
           >
             <span>⚙️</span>
             <span>Settings</span>
-          </a>
+          </Link>
         </nav>
 
-        <div className="mt-auto p-4">
+        <div className="mt-auto space-y-3 p-4">
           <div
             className="inline-flex items-center rounded-full px-3 py-1.5"
             style={{
@@ -394,11 +489,26 @@ export default function DashboardPage() {
               AI Active
             </span>
           </div>
+
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              router.push("/login");
+            }}
+            className="w-full rounded-lg px-3 py-2.5 text-sm font-medium transition-colors"
+            style={{
+              background: "#dc2626",
+              color: "white",
+              border: "1px solid #991b1b",
+            }}
+          >
+            Logout
+          </button>
         </div>
       </aside>
 
       <main className="px-4 pb-6 pt-5 lg:ml-65 lg:px-8 lg:pt-8">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-6 flex flex-col gap-1">
           <h1
             className="text-[28px] font-bold leading-tight"
             style={{
@@ -406,8 +516,14 @@ export default function DashboardPage() {
               color: "var(--text-primary)",
             }}
           >
-            Good morning ☀️
+            {getGreeting()},{" "}
+            {seller ? seller.business_name.split(" ")[0] : "there"}! 👋
           </h1>
+          <p style={{ color: "#666666" }}>{getFormattedDate()}</p>
+        </div>
+
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div></div>
 
           <div className="flex items-center gap-3">
             <div
@@ -464,23 +580,27 @@ export default function DashboardPage() {
               <StatCard
                 title="Total Orders"
                 value={String(stats.totalOrders)}
+                subtitle="All time"
                 className="stagger-1"
               />
               <StatCard
                 title="Needs Attention"
                 value={String(stats.needsAttention)}
+                subtitle="Awaiting payment"
                 tone="amber"
                 className="stagger-2"
               />
               <StatCard
                 title="Confirmed"
-                value={String(stats.confirmedToday)}
+                value={String(stats.confirmed)}
+                subtitle="Ready to deliver"
                 tone="green"
                 className="stagger-3"
               />
               <StatCard
                 title="Revenue"
                 value={formatNaira(stats.revenue)}
+                subtitle="From confirmed orders"
                 tone="gold"
                 className="stagger-4"
               />
@@ -542,152 +662,180 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading
-                  ? Array.from({ length: 5 }).map((_, index) => (
-                      <tr
-                        key={`skeleton-${index}`}
-                        className={`h-16 animate-pulse ${`stagger-${Math.min(index + 1, 5)}`}`}
-                        style={{ borderTop: "1px solid var(--border-subtle)" }}
-                      >
-                        <td className="px-5 py-2" colSpan={9}>
-                          <div className="h-6 w-full rounded bg-[#1f1f1f]" />
-                        </td>
-                      </tr>
-                    ))
-                  : orders.map((order, index) => {
-                      const payment = getPaymentConfig(order.payment_status);
-                      const status = getStatusConfig(order.order_status);
-                      const staggerClass = `stagger-${Math.min(index + 1, 5)}`;
-
-                      return (
-                        <tr
-                          key={order.id}
-                          className={`animate-fadeUp h-16 cursor-pointer transition-colors hover:bg-(--bg-hover) ${staggerClass}`}
+                {loading ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr
+                      key={`skeleton-${index}`}
+                      className={`h-16 animate-pulse ${`stagger-${Math.min(index + 1, 5)}`}`}
+                      style={{ borderTop: "1px solid var(--border-subtle)" }}
+                    >
+                      <td className="px-5 py-2" colSpan={9}>
+                        <div className="h-6 w-full rounded bg-[#1f1f1f]" />
+                      </td>
+                    </tr>
+                  ))
+                ) : orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-16">
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="text-6xl mb-4">📦</div>
+                        <p
                           style={{
-                            borderTop: "1px solid var(--border-subtle)",
+                            color: "var(--text-primary)",
+                            fontSize: "18px",
+                            fontWeight: "600",
                           }}
-                          onClick={() => setSelectedOrder(order)}
                         >
-                          <td className="px-5 py-2">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex h-8.5 w-8.5 items-center justify-center rounded-full text-[11px] font-bold"
-                                style={{
-                                  color: "#080808",
-                                  background:
-                                    "linear-gradient(135deg, var(--gold-bright), var(--gold-muted))",
-                                }}
-                              >
-                                {getInitials(order.customer_name || "Customer")}
-                              </div>
-                              <div>
-                                <p
-                                  className="text-sm font-medium"
-                                  style={{ color: "var(--text-primary)" }}
-                                >
-                                  {order.customer_name || "Customer"}
-                                </p>
-                                <p
-                                  className="text-[10px]"
-                                  style={{ color: "var(--text-muted)" }}
-                                >
-                                  {timeAgo(order.created_at)}
-                                </p>
-                              </div>
+                          No orders yet
+                        </p>
+                        <p
+                          style={{
+                            color: "#666666",
+                            fontSize: "14px",
+                            marginTop: "8px",
+                          }}
+                        >
+                          Orders from your WhatsApp bot will appear here
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  orders.map((order, index) => {
+                    const payment = getPaymentConfig(order.payment_status);
+                    const status = getStatusConfig(order.order_status);
+                    const staggerClass = `stagger-${Math.min(index + 1, 5)}`;
+
+                    return (
+                      <tr
+                        key={order.id}
+                        className={`animate-fadeUp h-16 cursor-pointer transition-colors hover:bg-(--bg-hover) ${staggerClass}`}
+                        style={{
+                          borderTop: "1px solid var(--border-subtle)",
+                        }}
+                        onClick={() => setSelectedOrder(order)}
+                      >
+                        <td className="px-5 py-2">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex h-8.5 w-8.5 items-center justify-center rounded-full text-[11px] font-bold"
+                              style={{
+                                color: "#080808",
+                                background:
+                                  "linear-gradient(135deg, var(--gold-bright), var(--gold-muted))",
+                              }}
+                            >
+                              {getInitials(order.customer_name || "Customer")}
                             </div>
-                          </td>
-
-                          <td
-                            className="px-5 py-2 text-sm"
-                            style={{ color: "var(--text-primary)" }}
-                          >
-                            {order.product_name || "—"}
-                          </td>
-                          <td
-                            className="px-5 py-2 text-sm"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            {order.size || "—"}
-                          </td>
-                          <td
-                            className="px-5 py-2 text-sm"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            {order.quantity || 1}
-                          </td>
-                          <td
-                            className="max-w-55 truncate px-5 py-2 text-sm"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            {order.delivery_address || "—"}
-                          </td>
-                          <td
-                            className="px-5 py-2 text-sm font-semibold"
-                            style={{ color: "var(--text-primary)" }}
-                          >
-                            {formatNaira(order.total_amount || 0)}
-                          </td>
-
-                          <td className="px-5 py-2">
-                            <span
-                              className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium"
-                              style={{
-                                background: payment.bg,
-                                color: payment.color,
-                                border: `1px solid ${payment.border}`,
-                              }}
-                            >
-                              {payment.dot ? (
-                                <span className="pulse-amber" />
-                              ) : null}
-                              {payment.label}
-                            </span>
-                          </td>
-
-                          <td className="px-5 py-2">
-                            <span
-                              className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium capitalize"
-                              style={{
-                                background: status.bg,
-                                color: status.color,
-                                border: `1px solid ${status.border}`,
-                              }}
-                            >
-                              {order.order_status || "new"}
-                            </span>
-                          </td>
-
-                          <td className="px-5 py-2">
-                            {order.payment_status === "payment_claimed" ? (
-                              <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleConfirmPayment(order);
-                                }}
-                                disabled={confirmingOrderId === order.id}
-                                className="rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_16px_rgba(232,160,69,0.4)] disabled:opacity-60"
-                                style={{
-                                  background:
-                                    "linear-gradient(135deg, #E8A045, #C4863A)",
-                                  color: "#080808",
-                                }}
+                            <div>
+                              <p
+                                className="text-sm font-medium"
+                                style={{ color: "var(--text-primary)" }}
                               >
-                                {confirmingOrderId === order.id
-                                  ? "Confirming..."
-                                  : "Confirm Payment"}
-                              </button>
-                            ) : (
-                              <span
-                                className="text-[11px]"
+                                {order.customer_name || "Customer"}
+                              </p>
+                              <p
+                                className="text-[10px]"
                                 style={{ color: "var(--text-muted)" }}
                               >
-                                —
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                                {timeAgo(order.created_at)}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td
+                          className="px-5 py-2 text-sm"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {order.product_name || "—"}
+                        </td>
+                        <td
+                          className="px-5 py-2 text-sm"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {order.size || "—"}
+                        </td>
+                        <td
+                          className="px-5 py-2 text-sm"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {order.quantity || 1}
+                        </td>
+                        <td
+                          className="max-w-55 truncate px-5 py-2 text-sm"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {order.delivery_address || "—"}
+                        </td>
+                        <td
+                          className="px-5 py-2 text-sm font-semibold"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {formatNaira(order.total_amount || 0)}
+                        </td>
+
+                        <td className="px-5 py-2">
+                          <span
+                            className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium"
+                            style={{
+                              background: payment.bg,
+                              color: payment.color,
+                              border: `1px solid ${payment.border}`,
+                            }}
+                          >
+                            {payment.dot ? (
+                              <span className="pulse-amber" />
+                            ) : null}
+                            {payment.label}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-2">
+                          <span
+                            className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium capitalize"
+                            style={{
+                              background: status.bg,
+                              color: status.color,
+                              border: `1px solid ${status.border}`,
+                            }}
+                          >
+                            {order.order_status || "new"}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-2">
+                          {order.payment_status === "payment_claimed" ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleConfirmPayment(order);
+                              }}
+                              disabled={confirmingOrderId === order.id}
+                              className="rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_16px_rgba(232,160,69,0.4)] disabled:opacity-60"
+                              style={{
+                                background:
+                                  "linear-gradient(135deg, #E8A045, #C4863A)",
+                                color: "#080808",
+                              }}
+                            >
+                              {confirmingOrderId === order.id
+                                ? "Confirming..."
+                                : "Confirm Payment"}
+                            </button>
+                          ) : (
+                            <span
+                              className="text-[11px]"
+                              style={{ color: "var(--text-muted)" }}
+                            >
+                              —
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

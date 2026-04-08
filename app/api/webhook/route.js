@@ -39,6 +39,49 @@ export async function POST(req) {
     ) {
       const messages = body.entry[0].changes[0].value.messages;
       const contacts = body.entry[0].changes[0].value.contacts;
+      const metadata = body.entry[0].changes[0].value.metadata;
+
+      // STEP 1: Extract destination phone number (seller's WhatsApp number)
+      let sellerPhoneNumber =
+        metadata?.display_phone_number || metadata?.phone_number_id || "";
+      console.log("📍 Incoming to number:", sellerPhoneNumber);
+
+      // Normalize phone number - strip leading + if present
+      if (sellerPhoneNumber.startsWith("+")) {
+        sellerPhoneNumber = sellerPhoneNumber.slice(1);
+      }
+
+      // STEP 2: Look up seller by WhatsApp number
+      const { data: seller, error: sellerError } = await supabase
+        .from("sellers")
+        .select("*")
+        .eq("whatsapp_number", sellerPhoneNumber)
+        .single();
+
+      if (sellerError || !seller) {
+        console.log(`⚠️  No seller found for number: ${sellerPhoneNumber}`);
+        // Always return 200 to Meta or they will keep retrying
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      console.log("✅ Seller found:", seller.business_name);
+      const seller_id = seller.id;
+
+      // STEP 6: Fetch seller's products
+      console.log("🛍️  Fetching product catalog...");
+      const { data: products, error: productsError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("seller_id", seller_id);
+
+      if (productsError) {
+        console.error("Error fetching products:", productsError);
+      }
+
+      const productCatalog = products || [];
 
       for (let message of messages) {
         // Only process text messages
@@ -55,9 +98,6 @@ export async function POST(req) {
         console.log(
           `📱 Message from ${sender_phone} (${customer_name}): ${message_text}`,
         );
-
-        // Hardcoded seller_id for testing (will add proper lookup later)
-        const seller_id = "211147d4-04f7-4608-a1d4-415087dae4cc";
 
         try {
           // Step 1: Save incoming customer message to conversations
@@ -92,25 +132,13 @@ export async function POST(req) {
 
           const conversationHistory = history || [];
 
-          // Step 3: Fetch product catalog
-          console.log("🛍️  Fetching product catalog...");
-          const { data: products, error: productsError } = await supabase
-            .from("products")
-            .select("*")
-            .eq("seller_id", seller_id);
-
-          if (productsError) {
-            console.error("Error fetching products:", productsError);
-          }
-
-          const productCatalog = products || [];
-
-          // Step 4: Generate AI reply
+          // Step 3: Generate AI reply (with seller data)
           console.log("🤖 Generating AI reply...");
           const aiReply = await generateReply(
             message_text,
             productCatalog,
             conversationHistory,
+            seller,
           );
 
           // Step 4b: Detect complete order and save to orders table
@@ -228,8 +256,9 @@ export async function POST(req) {
     });
   } catch (error) {
     console.error("Webhook error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+    // Always return 200 to Meta or they will keep retrying
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }

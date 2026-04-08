@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const SELLER_ID = "211147d4-04f7-4608-a1d4-415087dae4cc";
+let SELLER_ID = null;
 
 function formatNaira(amount) {
   return `₦${Number(amount || 0).toLocaleString()}`;
@@ -50,12 +51,14 @@ function StockToggle({ isOn, onToggle, label }) {
 }
 
 export default function CatalogPage() {
+  const router = useRouter();
   const fileInputRef = useRef(null);
   const [showDrawer, setShowDrawer] = useState(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
+  const [user, setUser] = useState(null);
 
   const [productName, setProductName] = useState("");
   const [description, setDescription] = useState("");
@@ -67,8 +70,22 @@ export default function CatalogPage() {
   const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    async function checkUser() {
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+
+      if (!authUser) {
+        router.push("/login");
+        return;
+      }
+
+      setUser(authUser);
+      SELLER_ID = authUser.id;
+    }
+
+    checkUser();
+  }, [router]);
 
   useEffect(() => {
     if (!toast) return;
@@ -77,6 +94,7 @@ export default function CatalogPage() {
   }, [toast]);
 
   async function fetchProducts() {
+    if (!SELLER_ID) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("products")
@@ -94,6 +112,12 @@ export default function CatalogPage() {
     setProducts(data || []);
     setLoading(false);
   }
+
+  useEffect(() => {
+    if (user) {
+      fetchProducts();
+    }
+  }, [user]);
 
   function handleImageFile(file) {
     if (!file) return;
@@ -322,17 +346,17 @@ export default function CatalogPage() {
             <span>🛍️</span>
             <span>Catalog</span>
           </Link>
-          <a
-            href="#"
+          <Link
+            href="/settings"
             className="flex h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition-colors hover:bg-(--bg-elevated) hover:text-(--text-primary)"
             style={{ color: "var(--text-secondary)" }}
           >
             <span>⚙️</span>
             <span>Settings</span>
-          </a>
+          </Link>
         </nav>
 
-        <div className="mt-auto p-4">
+        <div className="mt-auto space-y-3 p-4">
           <div
             className="inline-flex items-center rounded-full px-3 py-1.5"
             style={{
@@ -348,6 +372,21 @@ export default function CatalogPage() {
               AI Active
             </span>
           </div>
+
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              router.push("/login");
+            }}
+            className="w-full rounded-lg px-3 py-2.5 text-sm font-medium transition-colors"
+            style={{
+              background: "#dc2626",
+              color: "white",
+              border: "1px solid #991b1b",
+            }}
+          >
+            Logout
+          </button>
         </div>
       </aside>
 
