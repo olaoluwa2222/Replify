@@ -69,6 +69,7 @@ export default function CatalogPage() {
   const [stockStatus, setStockStatus] = useState("in_stock");
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
+  const [editingProductId, setEditingProductId] = useState(null);
   const filesInputRef = useRef(null);
 
   useEffect(() => {
@@ -135,8 +136,10 @@ export default function CatalogPage() {
     const newFiles = imageFiles.filter((_, i) => i !== index);
     const newPreviews = imagePreviews.filter((_, i) => i !== index);
 
-    // Clean up object URL
-    URL.revokeObjectURL(imagePreviews[index]);
+    // Clean up object URL if it's a new file URL (starts with blob)
+    if (imagePreviews[index]?.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreviews[index]);
+    }
 
     setImageFiles(newFiles);
     setImagePreviews(newPreviews);
@@ -155,6 +158,25 @@ export default function CatalogPage() {
 
     setImageFiles([]);
     setImagePreviews([]);
+    setEditingProductId(null);
+  }
+
+  async function handleEditProduct(product) {
+    setEditingProductId(product.id);
+    setProductName(product.name);
+    setDescription(product.description || "");
+    setPrice(product.price?.toString() || "");
+    setSizes(product.sizes || "");
+    setVariants(product.variants || "");
+    setStockStatus(product.stock_status || "in_stock");
+
+    // Set existing images as previews
+    const existingUrls =
+      product.image_urls || (product.image_url ? [product.image_url] : []);
+    setImagePreviews(existingUrls);
+    setImageFiles([]); // No new files yet
+
+    setShowDrawer(true);
   }
 
   async function handleSaveProduct(event) {
@@ -164,9 +186,17 @@ export default function CatalogPage() {
     setSaving(true);
 
     try {
-      const imageUrls = [];
+      // Combine new uploads + existing images
+      let imageUrls = [];
 
-      // Upload all images
+      // Keep existing URLs (filter out web URLs if editing)
+      if (editingProductId) {
+        imageUrls = imagePreviews.filter(
+          (url) => typeof url === "string" && url.startsWith("http"),
+        );
+      }
+
+      // Upload new files
       if (imageFiles.length > 0) {
         for (const file of imageFiles) {
           const formData = new FormData();
@@ -186,24 +216,41 @@ export default function CatalogPage() {
         }
       }
 
-      const { error } = await supabase.from("products").insert({
-        seller_id: SELLER_ID,
+      const productData = {
         name: productName,
         description,
         price: parseFloat(price),
         sizes,
         variants,
         stock_status: stockStatus,
-        image_url: imageUrls[0] || null, // First image as thumbnail
-        image_urls: imageUrls, // All images as JSON array
-      });
+        image_url: imageUrls[0] || null,
+        image_urls: imageUrls,
+      };
+
+      let error;
+
+      if (editingProductId) {
+        // Update existing product
+        const result = await supabase
+          .from("products")
+          .update(productData)
+          .eq("id", editingProductId);
+        error = result.error;
+      } else {
+        // Insert new product
+        const result = await supabase.from("products").insert({
+          seller_id: SELLER_ID,
+          ...productData,
+        });
+        error = result.error;
+      }
 
       if (error) throw error;
 
       setShowDrawer(false);
       resetForm();
       await fetchProducts();
-      setToast("Product saved!");
+      setToast(editingProductId ? "Product updated!" : "Product saved!");
     } catch (error) {
       console.error("Error saving product:", error);
       setToast(`Error: ${error.message}`);
@@ -572,6 +619,7 @@ export default function CatalogPage() {
                           <button
                             type="button"
                             className="text-(--text-muted) transition-colors hover:text-(--gold)"
+                            onClick={() => handleEditProduct(product)}
                             aria-label={`Edit ${product.name}`}
                           >
                             ✏️
@@ -617,11 +665,14 @@ export default function CatalogPage() {
                   color: "var(--text-primary)",
                 }}
               >
-                Add Product
+                {editingProductId ? "Edit Product" : "Add Product"}
               </h2>
               <button
                 type="button"
-                onClick={() => setShowDrawer(false)}
+                onClick={() => {
+                  setShowDrawer(false);
+                  resetForm();
+                }}
                 className="rounded-md px-2 py-1 text-sm transition-colors hover:bg-(--bg-elevated)"
                 style={{ color: "var(--text-secondary)" }}
               >
@@ -742,7 +793,7 @@ export default function CatalogPage() {
                   className="mb-1 block text-[12px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Product Images ({imageFiles.length}/10)
+                  Product Images ({imagePreviews.length}/10)
                 </label>
 
                 <input
@@ -767,7 +818,7 @@ export default function CatalogPage() {
                     borderColor: "var(--border)",
                     background: "var(--bg-elevated)",
                   }}
-                  disabled={imageFiles.length >= 10}
+                  disabled={imagePreviews.length >= 10}
                 >
                   {imagePreviews.length === 0 ? (
                     <>
@@ -873,7 +924,13 @@ export default function CatalogPage() {
                   color: "#080808",
                 }}
               >
-                {saving ? "Saving..." : "Save Product"}
+                {saving
+                  ? editingProductId
+                    ? "Updating..."
+                    : "Saving..."
+                  : editingProductId
+                    ? "Update Product"
+                    : "Save Product"}
               </button>
             </form>
           </aside>
