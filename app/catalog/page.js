@@ -70,6 +70,7 @@ export default function CatalogPage() {
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [editingProductId, setEditingProductId] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const filesInputRef = useRef(null);
 
   useEffect(() => {
@@ -525,7 +526,8 @@ export default function CatalogPage() {
                 return (
                   <article
                     key={product.id}
-                    className="group overflow-hidden rounded-xl border transition-all duration-200 hover:border-(--gold) hover:shadow-[0_0_20px_rgba(232,160,69,0.15)]"
+                    onClick={() => setSelectedProduct(product)}
+                    className="group overflow-hidden rounded-xl border transition-all duration-200 hover:border-(--gold) hover:shadow-[0_0_20px_rgba(232,160,69,0.15)] cursor-pointer"
                     style={{
                       background: "var(--bg-elevated)",
                       borderColor: "var(--border)",
@@ -934,6 +936,190 @@ export default function CatalogPage() {
               </button>
             </form>
           </aside>
+        </>
+      ) : null}
+
+      {selectedProduct ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/60"
+            onClick={() => setSelectedProduct(null)}
+            aria-label="Close product preview"
+          />
+
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div
+              className="relative rounded-xl border w-full max-w-2xl my-8"
+              style={{
+                background: "var(--bg-elevated)",
+                borderColor: "var(--border)",
+              }}
+            >
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setSelectedProduct(null)}
+                className="absolute right-4 top-4 z-10 rounded-lg px-2 py-1 transition-colors hover:bg-(--bg-hover)"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                ✕
+              </button>
+
+              {/* Product Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+                {/* Large Carousel */}
+                <div>
+                  <ImageCarousel
+                    images={
+                      selectedProduct.image_urls &&
+                      selectedProduct.image_urls.length > 0
+                        ? selectedProduct.image_urls
+                        : selectedProduct.image_url
+                          ? [selectedProduct.image_url]
+                          : []
+                    }
+                  />
+                </div>
+
+                {/* Product Info */}
+                <div className="space-y-5">
+                  <div>
+                    <h1
+                      className="text-2xl font-bold leading-tight"
+                      style={{
+                        fontFamily: "'Sora', sans-serif",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {selectedProduct.name}
+                    </h1>
+                    <p
+                      className="mt-2 text-2xl font-bold"
+                      style={{ color: "var(--gold)" }}
+                    >
+                      {formatNaira(selectedProduct.price)}
+                    </p>
+                  </div>
+
+                  {selectedProduct.description && (
+                    <div>
+                      <p
+                        className="text-sm"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {selectedProduct.description}
+                      </p>
+                    </div>
+                  )}
+
+                  {splitValues(selectedProduct.sizes).length > 0 && (
+                    <div>
+                      <p
+                        className="mb-2 text-xs font-semibold"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        AVAILABLE SIZES
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {splitValues(selectedProduct.sizes).map((size) => (
+                          <span
+                            key={`detail-size-${size}`}
+                            className="rounded-lg border px-3 py-2 text-sm font-medium"
+                            style={{
+                              background: "var(--bg-hover)",
+                              color: "var(--gold)",
+                              borderColor: "var(--gold-subtle)",
+                            }}
+                          >
+                            {size}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {splitValues(selectedProduct.variants).length > 0 && (
+                    <div>
+                      <p
+                        className="mb-2 text-xs font-semibold"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        AVAILABLE COLORS/VARIANTS
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {splitValues(selectedProduct.variants).map(
+                          (variant) => (
+                            <span
+                              key={`detail-variant-${variant}`}
+                              className="rounded-lg border px-3 py-2 text-sm font-medium"
+                              style={{
+                                background: "var(--bg-hover)",
+                                color: "var(--text-secondary)",
+                                borderColor: "var(--border)",
+                              }}
+                            >
+                              {variant}
+                            </span>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stock Status */}
+                  <div
+                    className="pt-4 border-t"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    <StockToggle
+                      isOn={selectedProduct.stock_status === "in_stock"}
+                      onToggle={() => handleToggleProductStock(selectedProduct)}
+                      label={
+                        selectedProduct.stock_status === "in_stock"
+                          ? "In Stock"
+                          : "Out of Stock"
+                      }
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleEditProduct(selectedProduct);
+                        setSelectedProduct(null);
+                      }}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-all duration-200 hover:brightness-110"
+                      style={{
+                        fontFamily: "'Sora', sans-serif",
+                        background: "linear-gradient(135deg, #E8A045, #C4863A)",
+                        color: "#080808",
+                      }}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDeleteProduct(selectedProduct.id);
+                        setSelectedProduct(null);
+                      }}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition-colors"
+                      style={{
+                        background: "#dc2626",
+                        color: "white",
+                        border: "1px solid #991b1b",
+                      }}
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       ) : null}
 
