@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import ImageCarousel from "@/app/components/ImageCarousel";
 
 let SELLER_ID = null;
 
@@ -66,8 +67,9 @@ export default function CatalogPage() {
   const [sizes, setSizes] = useState("");
   const [variants, setVariants] = useState("");
   const [stockStatus, setStockStatus] = useState("in_stock");
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const filesInputRef = useRef(null);
 
   useEffect(() => {
     async function checkUser() {
@@ -119,11 +121,25 @@ export default function CatalogPage() {
     }
   }, [user]);
 
-  function handleImageFile(file) {
-    if (!file) return;
-    const previewUrl = URL.createObjectURL(file);
-    setImageFile(file);
-    setImagePreview(previewUrl);
+  function handleImageFiles(files) {
+    if (!files || files.length === 0) return;
+
+    const newFiles = Array.from(files);
+    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
+
+    setImageFiles((prev) => [...prev, ...newFiles]);
+    setImagePreviews((prev) => [...prev, ...newPreviews]);
+  }
+
+  function removeImageAtIndex(index) {
+    const newFiles = imageFiles.filter((_, i) => i !== index);
+    const newPreviews = imagePreviews.filter((_, i) => i !== index);
+
+    // Clean up object URL
+    URL.revokeObjectURL(imagePreviews[index]);
+
+    setImageFiles(newFiles);
+    setImagePreviews(newPreviews);
   }
 
   function resetForm() {
@@ -133,8 +149,12 @@ export default function CatalogPage() {
     setSizes("");
     setVariants("");
     setStockStatus("in_stock");
-    setImageFile(null);
-    setImagePreview(null);
+
+    // Clean up object URLs
+    imagePreviews.forEach((preview) => URL.revokeObjectURL(preview));
+
+    setImageFiles([]);
+    setImagePreviews([]);
   }
 
   async function handleSaveProduct(event) {
@@ -144,23 +164,26 @@ export default function CatalogPage() {
     setSaving(true);
 
     try {
-      let imageUrl = null;
+      const imageUrls = [];
 
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append("file", imageFile);
+      // Upload all images
+      if (imageFiles.length > 0) {
+        for (const file of imageFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
 
-        const uploadResponse = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
+          const uploadResponse = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
 
-        const uploadData = await uploadResponse.json();
-        if (!uploadResponse.ok) {
-          throw new Error(uploadData.error || "Image upload failed");
+          const uploadData = await uploadResponse.json();
+          if (!uploadResponse.ok) {
+            throw new Error(uploadData.error || "Image upload failed");
+          }
+
+          imageUrls.push(uploadData.secure_url);
         }
-
-        imageUrl = uploadData.secure_url;
       }
 
       const { error } = await supabase.from("products").insert({
@@ -171,7 +194,8 @@ export default function CatalogPage() {
         sizes,
         variants,
         stock_status: stockStatus,
-        image_url: imageUrl || null,
+        image_url: imageUrls[0] || null, // First image as thumbnail
+        image_urls: imageUrls, // All images as JSON array
       });
 
       if (error) throw error;
@@ -182,6 +206,7 @@ export default function CatalogPage() {
       setToast("Product saved!");
     } catch (error) {
       console.error("Error saving product:", error);
+      setToast(`Error: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -459,22 +484,15 @@ export default function CatalogPage() {
                       borderColor: "var(--border)",
                     }}
                   >
-                    <div
-                      className="flex h-40 items-center justify-center rounded-t-xl"
-                      style={{ background: "var(--bg-surface)" }}
-                    >
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-3xl" style={{ opacity: 0.6 }}>
-                          📷
-                        </span>
-                      )}
-                    </div>
+                    <ImageCarousel
+                      images={
+                        product.image_urls && product.image_urls.length > 0
+                          ? product.image_urls
+                          : product.image_url
+                            ? [product.image_url]
+                            : []
+                      }
+                    />
 
                     <div className="space-y-3 p-4">
                       <div>
@@ -724,23 +742,24 @@ export default function CatalogPage() {
                   className="mb-1 block text-[12px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Product Image
+                  Product Images ({imageFiles.length}/10)
                 </label>
 
                 <input
-                  ref={fileInputRef}
+                  ref={filesInputRef}
                   type="file"
+                  multiple
                   accept="image/*"
                   className="hidden"
-                  onChange={(event) => handleImageFile(event.target.files?.[0])}
+                  onChange={(event) => handleImageFiles(event.target.files)}
                 />
 
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => filesInputRef.current?.click()}
                   onDrop={(event) => {
                     event.preventDefault();
-                    handleImageFile(event.dataTransfer.files?.[0]);
+                    handleImageFiles(event.dataTransfer.files);
                   }}
                   onDragOver={(event) => event.preventDefault()}
                   className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors hover:border-(--gold)"
@@ -748,31 +767,80 @@ export default function CatalogPage() {
                     borderColor: "var(--border)",
                     background: "var(--bg-elevated)",
                   }}
+                  disabled={imageFiles.length >= 10}
                 >
-                  {imagePreview ? (
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="h-28 w-full rounded-lg object-cover"
-                    />
-                  ) : (
+                  {imagePreviews.length === 0 ? (
                     <>
-                      <span className="text-3xl">📷</span>
+                      <span className="text-3xl">🖼️</span>
                       <p
                         className="mt-2 text-sm font-medium"
                         style={{ color: "var(--text-primary)" }}
                       >
-                        Upload product image
+                        Upload product images
                       </p>
                       <p
                         className="mt-1 text-[11px]"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        Click to browse or drag and drop
+                        Click to browse or drag and drop (Max 10 images)
                       </p>
                     </>
+                  ) : (
+                    <p
+                      className="text-xs"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Click to add more images
+                    </p>
                   )}
                 </button>
+
+                {/* Image Thumbnails */}
+                {imagePreviews.length > 0 && (
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    {imagePreviews.map((preview, index) => (
+                      <div
+                        key={`preview-${index}`}
+                        className="group relative overflow-hidden rounded-lg border"
+                        style={{
+                          borderColor: "var(--border)",
+                          background: "var(--bg-hover)",
+                          paddingBottom: "100%",
+                        }}
+                      >
+                        <img
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+
+                        {/* Badge showing image order */}
+                        <div
+                          className="absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold"
+                          style={{
+                            background: "var(--gold)",
+                            color: "#080808",
+                          }}
+                        >
+                          {index + 1}
+                        </div>
+
+                        {/* Remove Button */}
+                        <button
+                          type="button"
+                          onClick={() => removeImageAtIndex(index)}
+                          className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                          style={{
+                            background: "rgba(0,0,0,0.6)",
+                          }}
+                          aria-label={`Remove image ${index + 1}`}
+                        >
+                          <span className="text-2xl">✕</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
