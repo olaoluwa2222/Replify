@@ -950,7 +950,7 @@ export default function CatalogPage() {
 
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div
-              className="relative rounded-xl border w-full max-w-2xl my-8"
+              className="relative rounded-xl border w-full max-w-4xl my-8"
               style={{
                 background: "var(--bg-elevated)",
                 borderColor: "var(--border)",
@@ -967,9 +967,15 @@ export default function CatalogPage() {
               </button>
 
               {/* Product Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-                {/* Large Carousel */}
-                <div>
+              <div className="space-y-6 p-6">
+                {/* Large Carousel - Full Width */}
+                <div
+                  className="w-full rounded-lg overflow-hidden"
+                  style={{
+                    background: "var(--bg-surface)",
+                    minHeight: "500px",
+                  }}
+                >
                   <ImageCarousel
                     images={
                       selectedProduct.image_urls &&
@@ -983,10 +989,11 @@ export default function CatalogPage() {
                 </div>
 
                 {/* Product Info */}
-                <div className="space-y-5">
+                <div className="space-y-4">
+                  {/* Name and Price */}
                   <div>
                     <h1
-                      className="text-2xl font-bold leading-tight"
+                      className="text-3xl font-bold leading-tight"
                       style={{
                         fontFamily: "'Sora', sans-serif",
                         color: "var(--text-primary)",
@@ -995,17 +1002,18 @@ export default function CatalogPage() {
                       {selectedProduct.name}
                     </h1>
                     <p
-                      className="mt-2 text-2xl font-bold"
+                      className="mt-2 text-3xl font-bold"
                       style={{ color: "var(--gold)" }}
                     >
                       {formatNaira(selectedProduct.price)}
                     </p>
                   </div>
 
+                  {/* Description */}
                   {selectedProduct.description && (
                     <div>
                       <p
-                        className="text-sm"
+                        className="text-sm leading-relaxed"
                         style={{ color: "var(--text-secondary)" }}
                       >
                         {selectedProduct.description}
@@ -1013,57 +1021,63 @@ export default function CatalogPage() {
                     </div>
                   )}
 
-                  {splitValues(selectedProduct.sizes).length > 0 && (
-                    <div>
-                      <p
-                        className="mb-2 text-xs font-semibold"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        AVAILABLE SIZES
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {splitValues(selectedProduct.sizes).map((size) => (
-                          <span
-                            key={`detail-size-${size}`}
-                            className="rounded-lg border px-3 py-2 text-sm font-medium"
-                            style={{
-                              background: "var(--bg-hover)",
-                              color: "var(--gold)",
-                              borderColor: "var(--gold-subtle)",
-                            }}
+                  {/* Sizes and Variants Grid */}
+                  {(splitValues(selectedProduct.sizes).length > 0 ||
+                    splitValues(selectedProduct.variants).length > 0) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {splitValues(selectedProduct.sizes).length > 0 && (
+                        <div>
+                          <p
+                            className="mb-2 text-xs font-semibold"
+                            style={{ color: "var(--text-muted)" }}
                           >
-                            {size}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                            AVAILABLE SIZES
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {splitValues(selectedProduct.sizes).map((size) => (
+                              <span
+                                key={`detail-size-${size}`}
+                                className="rounded-lg border px-3 py-2 text-sm font-medium"
+                                style={{
+                                  background: "var(--bg-hover)",
+                                  color: "var(--gold)",
+                                  borderColor: "var(--gold-subtle)",
+                                }}
+                              >
+                                {size}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                  {splitValues(selectedProduct.variants).length > 0 && (
-                    <div>
-                      <p
-                        className="mb-2 text-xs font-semibold"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        AVAILABLE COLORS/VARIANTS
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {splitValues(selectedProduct.variants).map(
-                          (variant) => (
-                            <span
-                              key={`detail-variant-${variant}`}
-                              className="rounded-lg border px-3 py-2 text-sm font-medium"
-                              style={{
-                                background: "var(--bg-hover)",
-                                color: "var(--text-secondary)",
-                                borderColor: "var(--border)",
-                              }}
-                            >
-                              {variant}
-                            </span>
-                          ),
-                        )}
-                      </div>
+                      {splitValues(selectedProduct.variants).length > 0 && (
+                        <div>
+                          <p
+                            className="mb-2 text-xs font-semibold"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            AVAILABLE COLORS/VARIANTS
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {splitValues(selectedProduct.variants).map(
+                              (variant) => (
+                                <span
+                                  key={`detail-variant-${variant}`}
+                                  className="rounded-lg border px-3 py-2 text-sm font-medium"
+                                  style={{
+                                    background: "var(--bg-hover)",
+                                    color: "var(--text-secondary)",
+                                    borderColor: "var(--border)",
+                                  }}
+                                >
+                                  {variant}
+                                </span>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
